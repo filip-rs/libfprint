@@ -46,6 +46,12 @@
  * generally prevents calibration from looping indefinitely */
 #define ELAN_CALIBRATION_ATTEMPTS 10
 
+/* times to retry the finger-presence status read in CAPTURE_READ_DATA before
+ * treating an unexpected status byte as a real protocol error. Some devices'
+ * firmware needs a moment for this status to settle after pre_scan_cmd
+ * unblocks (see CALIBRATE_CHECK_STATUS for the analogous calibration quirk) */
+#define ELAN_CAPTURE_READ_ATTEMPTS 5
+
 /* min and max frames in a capture */
 #define ELAN_MIN_FRAMES 7
 #define ELAN_MAX_FRAMES 30
