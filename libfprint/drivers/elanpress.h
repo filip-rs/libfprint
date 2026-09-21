@@ -45,12 +45,32 @@
 #define ELANPRESS_FINGER_PRESENT 0x55
 
 /* frames captured per touch; the finger is static so these only serve to
- * average out noise */
-#define ELANPRESS_MIN_FRAMES 3
+ * average out noise.
+ *
+ * Enrollment keeps the stricter minimum so the stored templates stay clean.
+ * Verification accepts a single frame: a touch that yields fewer frames than
+ * the minimum is discarded and silently retried, which to the user looks like
+ * the sensor ignoring the finger rather than rejecting it. A quick tap that
+ * only produces one noisy frame still correlates far above the threshold. */
+#define ELANPRESS_MIN_FRAMES_ENROLL 3
+#define ELANPRESS_MIN_FRAMES_VERIFY 1
 #define ELANPRESS_MAX_FRAMES 10
 
 /* number of touches stored during enrollment */
 #define ELANPRESS_ENROLL_STAGES 8
+
+/* grace period after the finger is first detected, before the frames that
+ * will actually be matched are captured. The sensor images a small window of
+ * the finger, so the correlation score is dominated by how well the touch is
+ * centred rather than by whose finger it is; these sensors are often mounted
+ * where the user cannot see them, and this gives them a moment to adjust. */
+#define ELANPRESS_SETTLE_MS 400
+
+/* touches sampled per verify/identify before reporting a non-match. A badly
+ * placed touch of the right finger scores no better than the wrong finger, so
+ * resampling recovers it without weakening the decision: every attempt still
+ * has to clear the threshold on its own. */
+#define ELANPRESS_MATCH_ATTEMPTS 3
 
 /* version tag for the serialized print data */
 #define ELANPRESS_PRINT_VERSION 1

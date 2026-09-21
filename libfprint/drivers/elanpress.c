@@ -43,6 +43,20 @@ struct _FpiDeviceElanPress
   GSList         *frames;
   int             num_frames;
 
+  /* frames a touch must yield to be accepted; differs between enroll and
+   * verify, see ELANPRESS_MIN_FRAMES_* */
+  int             min_frames;
+
+  /* set once the settle delay has been granted for the touch in progress */
+  gboolean        settled;
+
+  /* best result seen across the attempts of the current verify/identify;
+   * best_print is borrowed from the identify gallery, which outlives the
+   * operation */
+  int             match_attempt;
+  gdouble         best_score;
+  FpPrint        *best_print;
+
   /* processed images collected during enrollment */
   GPtrArray      *enroll_images;
   int             enroll_stage;
@@ -150,6 +164,7 @@ elanpress_match_print (FpiDeviceElanPress *self, const guint8 *probe,
     {
       gdouble c = elanpress_ncc_best (probe, g_ptr_array_index (images, i),
                                       self->frame_width, self->frame_height);
+      fp_dbg ("  enrolled image %u/%u: NCC %.3f", i + 1, images->len, c);
       best = MAX (best, c);
     }
 
@@ -163,6 +178,7 @@ elanpress_reset_capture (FpiDeviceElanPress *self)
 {
   g_slist_free_full (g_steal_pointer (&self->frames), g_free);
   self->num_frames = 0;
+  self->settled = FALSE;
 }
 
 static void
@@ -312,30 +328,45 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
     case CAPTURE_FRAME_REQUEST:
       if (self->finger_byte != ELANPRESS_FINGER_PRESENT)
         {
-          if (self->num_frames >= ELANPRESS_MIN_FRAMES)
+          if (self->num_frames >= self->min_frames)
             {
               /* finger lifted after enough frames: touch complete */
+              fp_dbg ("touch complete, %d frames", self->num_frames);
               fpi_ssm_mark_completed (ssm);
             }
           else if (self->num_frames > 0)
             {
               /* bounced touch, start over */
-              fp_dbg ("finger lifted after only %d frames, retrying",
-                      self->num_frames);
+              fp_dbg ("finger lifted after only %d of %d frames, retrying",
+                      self->num_frames, self->min_frames);
               elanpress_reset_capture (self);
               fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_WAIT_ON_SEND,
                                              ELANPRESS_POLL_INTERVAL_MS);
             }
           else
             {
+              /* finger lifted again during the settle delay */
+              self->settled = FALSE;
               fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_WAIT_ON_SEND,
                                              ELANPRESS_POLL_INTERVAL_MS);
             }
           break;
         }
+
       fpi_device_report_finger_status (dev,
                                        FP_FINGER_STATUS_NEEDED |
                                        FP_FINGER_STATUS_PRESENT);
+
+      if (!self->settled)
+        {
+          /* the finger has just landed: let it be repositioned before
+           * capturing anything that will be matched */
+          self->settled = TRUE;
+          fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_WAIT_ON_SEND,
+                                         ELANPRESS_SETTLE_MS);
+          break;
+        }
+
       elanpress_send_cmd (ssm, dev, cmd_get_image);
       break;
 
@@ -435,6 +466,7 @@ elanpress_enroll (FpDevice *dev)
   FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
 
   self->enroll_stage = 0;
+  self->min_frames = ELANPRESS_MIN_FRAMES_ENROLL;
   g_clear_pointer (&self->enroll_images, g_ptr_array_unref);
   self->enroll_images = g_ptr_array_new_with_free_func (g_free);
 
@@ -443,18 +475,49 @@ elanpress_enroll (FpDevice *dev)
 
 /* === verify and identify === */
 
+/* report the best result seen across this operation's attempts */
+static void
+elanpress_match_report (FpDevice *dev)
+{
+  FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
+  FpiDeviceAction action = fpi_device_get_current_action (dev);
+  gboolean matched = self->best_score >= ELANPRESS_NCC_THRESHOLD;
+
+  elanpress_send_stop (dev);
+
+  fp_dbg ("%s after %d attempt(s), best NCC %.3f (threshold %.2f)",
+          matched ? "MATCH" : "no match", self->match_attempt,
+          self->best_score, ELANPRESS_NCC_THRESHOLD);
+
+  if (action == FPI_DEVICE_ACTION_IDENTIFY)
+    {
+      fpi_device_identify_report (dev, matched ? self->best_print : NULL,
+                                  NULL, NULL);
+      fpi_device_identify_complete (dev, NULL);
+    }
+  else
+    {
+      fpi_device_verify_report (dev,
+                                matched ? FPI_MATCH_SUCCESS : FPI_MATCH_FAIL,
+                                NULL, NULL);
+      fpi_device_verify_complete (dev, NULL);
+    }
+}
+
 static void
 elanpress_match_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 {
   FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
   FpiDeviceAction action = fpi_device_get_current_action (dev);
   g_autofree guint8 *probe = NULL;
+  int probe_frames = self->num_frames;
+  gboolean last_attempt;
 
   fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
-  elanpress_send_stop (dev);
 
   if (error)
     {
+      elanpress_send_stop (dev);
       if (action == FPI_DEVICE_ACTION_IDENTIFY)
         fpi_device_identify_complete (dev, error);
       else
@@ -462,12 +525,26 @@ elanpress_match_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
       return;
     }
 
+  self->match_attempt++;
+  last_attempt = self->match_attempt >= ELANPRESS_MATCH_ATTEMPTS;
+
   probe = elanpress_process_touch (self);
   elanpress_reset_capture (self);
 
   if (!probe)
     {
-      GError *retry = fpi_device_retry_new (FP_DEVICE_RETRY_GENERAL);
+      GError *retry;
+
+      if (!last_attempt)
+        {
+          fp_dbg ("unusable touch, resampling (attempt %d of %d)",
+                  self->match_attempt + 1, ELANPRESS_MATCH_ATTEMPTS);
+          elanpress_capture_touch (self, elanpress_match_touch_done);
+          return;
+        }
+
+      elanpress_send_stop (dev);
+      retry = fpi_device_retry_new (FP_DEVICE_RETRY_GENERAL);
 
       if (action == FPI_DEVICE_ACTION_IDENTIFY)
         {
@@ -485,8 +562,6 @@ elanpress_match_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   if (action == FPI_DEVICE_ACTION_IDENTIFY)
     {
       GPtrArray *gallery = NULL;
-      FpPrint *best_print = NULL;
-      gdouble best = -1.0;
 
       fpi_device_get_identify_data (dev, &gallery);
       for (guint i = 0; i < gallery->len; i++)
@@ -494,19 +569,16 @@ elanpress_match_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
           FpPrint *print = g_ptr_array_index (gallery, i);
           gdouble c = elanpress_match_print (self, probe, print);
 
-          if (c > best)
+          if (c > self->best_score)
             {
-              best = c;
-              best_print = print;
+              self->best_score = c;
+              self->best_print = print;
             }
         }
 
-      fp_dbg ("best NCC %.3f (threshold %.2f)", best, ELANPRESS_NCC_THRESHOLD);
-      if (best >= ELANPRESS_NCC_THRESHOLD)
-        fpi_device_identify_report (dev, best_print, NULL, NULL);
-      else
-        fpi_device_identify_report (dev, NULL, NULL, NULL);
-      fpi_device_identify_complete (dev, NULL);
+      fp_dbg ("attempt %d/%d: best NCC %.3f from %d frame(s) (threshold %.2f)",
+              self->match_attempt, ELANPRESS_MATCH_ATTEMPTS,
+              self->best_score, probe_frames, ELANPRESS_NCC_THRESHOLD);
     }
   else
     {
@@ -515,21 +587,31 @@ elanpress_match_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 
       fpi_device_get_verify_data (dev, &print);
       c = elanpress_match_print (self, probe, print);
-      fp_dbg ("NCC %.3f (threshold %.2f)", c, ELANPRESS_NCC_THRESHOLD);
+      fp_dbg ("attempt %d/%d: NCC %.3f from %d frame(s) (threshold %.2f)",
+              self->match_attempt, ELANPRESS_MATCH_ATTEMPTS,
+              c, probe_frames, ELANPRESS_NCC_THRESHOLD);
 
+      /* the stored print itself is unusable; resampling cannot help */
       if (c < 0)
         {
+          elanpress_send_stop (dev);
           fpi_device_verify_complete (dev,
                                       fpi_device_error_new (FP_DEVICE_ERROR_DATA_INVALID));
           return;
         }
 
-      fpi_device_verify_report (dev,
-                                c >= ELANPRESS_NCC_THRESHOLD ?
-                                FPI_MATCH_SUCCESS : FPI_MATCH_FAIL,
-                                NULL, NULL);
-      fpi_device_verify_complete (dev, NULL);
+      self->best_score = MAX (self->best_score, c);
     }
+
+  if (self->best_score < ELANPRESS_NCC_THRESHOLD && !last_attempt)
+    {
+      fp_dbg ("below threshold, resampling (attempt %d of %d)",
+              self->match_attempt + 1, ELANPRESS_MATCH_ATTEMPTS);
+      elanpress_capture_touch (self, elanpress_match_touch_done);
+      return;
+    }
+
+  elanpress_match_report (dev);
 }
 
 static void
@@ -537,6 +619,10 @@ elanpress_identify_verify (FpDevice *dev)
 {
   FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
 
+  self->min_frames = ELANPRESS_MIN_FRAMES_VERIFY;
+  self->match_attempt = 0;
+  self->best_score = -1.0;
+  self->best_print = NULL;
   elanpress_capture_touch (self, elanpress_match_touch_done);
 }
 
