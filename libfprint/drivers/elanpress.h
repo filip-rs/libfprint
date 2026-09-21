@@ -88,18 +88,22 @@
 
 /* separate presses averaged into one verify/identify decision.
  *
- * Resampling until something cleared the threshold made the verdict the best
+ * Resampling until some press cleared the threshold made the verdict the best
  * of everything tried: the best of several presses, each scored against the
  * best of the enrolled images, each of those the best over a few thousand
  * candidate alignments. A maximum taken over that many chances lifts a
  * stranger's score about as readily as the owner's, which is the likely
  * reason the driver has been reported as accepting any finger.
  *
- * Averaging independent presses cancels placement noise instead of rewarding
- * a lucky one, so the genuine and impostor score distributions separate
- * rather than both drifting upward. The cost is one extra press per verify:
- * set this to 1 to go back to deciding on a single press. */
-#define ELANPRESS_MATCH_SAMPLES 2
+ * Dropping that loop is what fixed it, not the averaging. Measured per press
+ * on the reference sensor, genuine touches ran 0.58-0.95 against 0.18-0.39
+ * for the wrong finger, so a single press already sits either side of the
+ * threshold. Averaging further presses only buys margin against an unusually
+ * poor genuine one, and on a lockscreen that margin is better spent on
+ * convenience: a false reject there costs one more press, whereas a second
+ * mandatory press costs one every single time. Raise this if the score
+ * distributions on some other sensor turn out to sit closer together. */
+#define ELANPRESS_MATCH_SAMPLES 1
 
 /* extra presses allowed when one yields no usable image at all: too few
  * frames, or too little contrast to be worth scoring. These do not count
