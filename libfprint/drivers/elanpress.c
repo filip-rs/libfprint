@@ -59,8 +59,9 @@ struct _FpiDeviceElanPress
   guint           finger_off_frames;
 
   /* consecutive clear polls while waiting for a press, used to decide when
-   * the background frame is worth retaking */
+   * the background frame is worth retaking, and the request to do so */
   guint           idle_frames;
+  gboolean        bg_refresh;
 
   /* running totals for the current verify/identify: one accumulated score
    * per gallery print (a single entry when verifying), summed over the
@@ -83,6 +84,17 @@ static unsigned int
 elanpress_frame_size (FpiDeviceElanPress *self)
 {
   return (unsigned int) self->frame_width * self->frame_height;
+}
+
+static gdouble
+elanpress_frame_mean (const unsigned short *frame, unsigned int size)
+{
+  gint64 sum = 0;
+
+  for (unsigned int i = 0; i < size; i++)
+    sum += frame[i];
+
+  return (gdouble) sum / size;
 }
 
 static guint8 *
@@ -191,6 +203,7 @@ elanpress_reset_capture (FpiDeviceElanPress *self)
   self->num_frames = 0;
   self->settled = FALSE;
   self->idle_frames = 0;
+  self->bg_refresh = FALSE;
   g_clear_pointer (&self->last_frame, g_free);
 }
 
@@ -259,9 +272,30 @@ elanpress_frame_cb (FpiUsbTransfer *transfer, FpDevice *dev,
 
   if (fpi_ssm_get_cur_state (transfer->ssm) == CAPTURE_BG_READ)
     {
-      g_free (self->background);
-      self->background = frame;
-      fp_dbg ("captured background frame");
+      unsigned int size = elanpress_frame_size (self);
+
+      self->bg_refresh = FALSE;
+
+      if (!self->background)
+        {
+          self->background = frame;
+          fp_dbg ("captured background frame");
+        }
+      else if (elanpress_frame_mean (frame, size) <=
+               elanpress_frame_mean (self->background, size))
+        {
+          g_free (self->background);
+          self->background = frame;
+          fp_dbg ("background refreshed");
+        }
+      else
+        {
+          /* a finger only ever adds brightness, so a brighter candidate
+           * means something was resting on the sensor. Adopting it would
+           * write that finger into the reference and hide it for good. */
+          fp_dbg ("background candidate brighter than current, keeping it");
+          g_free (frame);
+        }
     }
   else
     {
@@ -277,6 +311,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
 {
   FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
   gsize frame_bytes = elanpress_frame_size (self) * 2;
+  ElanpressTouchStats stats = { 0, 0 };
   gboolean has_touch;
 
   switch (fpi_ssm_get_cur_state (ssm))
@@ -286,7 +321,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       break;
 
     case CAPTURE_BG_REQUEST:
-      if (self->background)
+      if (self->background && !self->bg_refresh)
         {
           fpi_ssm_jump_to_state (ssm, CAPTURE_POLL_REQUEST);
           break;
@@ -314,7 +349,12 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       /* after a frame: classify it and decide what the touch needs next */
       has_touch = elanpress_frame_has_touch (self->last_frame,
                                              self->background,
-                                             elanpress_frame_size (self));
+                                             elanpress_frame_size (self),
+                                             &stats);
+
+      fp_dbg ("poll: %s (coverage %.1f%%, mean delta %.0f)",
+              has_touch ? "touch" : "clear",
+              stats.coverage * 100, stats.mean_delta);
 
       if (self->wait_for_finger_off)
         {
@@ -333,7 +373,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
               fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NEEDED);
             }
           fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_POLL_REQUEST,
-                                         ELANPRESS_POLL_INTERVAL_MS);
+                                         ELANPRESS_IDLE_POLL_INTERVAL_MS);
           break;
         }
 
@@ -395,14 +435,14 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
               fp_dbg ("sensor clear for %u polls, retaking the background",
                       self->idle_frames);
               self->idle_frames = 0;
-              g_clear_pointer (&self->background, g_free);
+              self->bg_refresh = TRUE;
               fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_BG_REQUEST,
-                                             ELANPRESS_POLL_INTERVAL_MS);
+                                             ELANPRESS_IDLE_POLL_INTERVAL_MS);
               break;
             }
 
           fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_POLL_REQUEST,
-                                         ELANPRESS_POLL_INTERVAL_MS);
+                                         ELANPRESS_IDLE_POLL_INTERVAL_MS);
         }
       break;
     }

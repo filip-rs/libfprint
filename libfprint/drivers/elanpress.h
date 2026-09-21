@@ -38,8 +38,14 @@
 #define ELANPRESS_CMD_TIMEOUT 5000
 #define ELANPRESS_FRAME_TIMEOUT 2000
 
-/* interval between finger presence polls */
+/* interval between polls while frames of a touch are being collected */
 #define ELANPRESS_POLL_INTERVAL_MS 30
+
+/* interval between polls while waiting for a finger to land or lift. Each
+ * poll pulls a whole frame rather than the single status byte it used to, so
+ * the transfer already paces the loop; a further delay on top of it only
+ * adds latency to noticing the finger. */
+#define ELANPRESS_IDLE_POLL_INTERVAL_MS 5
 
 /* consecutive untouched frames that end a touch. Presence is inferred from
  * the image itself (see ELANPRESS_TOUCH_MIN_MEAN_DELTA) rather than asked of

@@ -160,17 +160,25 @@ elanpress_image_quality (const guint8 *img, unsigned int size)
   return sqrt (sum_sq / size);
 }
 
-/* sums how much brighter each pixel is than the background frame, to infer a
+/* counts how many pixels sit clearly above the background frame, to infer a
  * touch without asking cmd_pre_scan (see the capture state machine) */
 gboolean
 elanpress_frame_has_touch (const unsigned short *frame,
                            const unsigned short *background,
-                           unsigned int size)
+                           unsigned int size,
+                           ElanpressTouchStats *stats)
 {
   gint64 sum = 0;
+  unsigned int covered = 0;
 
-  /* without a reference frame presence cannot be told apart from an
-   * evenly lit sensor, so report no touch rather than guess */
+  if (stats)
+    {
+      stats->mean_delta = 0;
+      stats->coverage = 0;
+    }
+
+  /* without a reference frame presence cannot be told apart from an evenly
+   * lit sensor, so report no touch rather than guess */
   if (!frame || !background || size == 0)
     return FALSE;
 
@@ -178,11 +186,21 @@ elanpress_frame_has_touch (const unsigned short *frame,
     {
       int d = (int) frame[i] - (int) background[i];
 
-      if (d > 0)
-        sum += d;
+      if (d <= 0)
+        continue;
+
+      sum += d;
+      if (d >= ELANPRESS_TOUCH_PIXEL_DELTA)
+        covered++;
     }
 
-  return sum > (gint64) size * ELANPRESS_TOUCH_MIN_MEAN_DELTA;
+  if (stats)
+    {
+      stats->mean_delta = (gdouble) sum / size;
+      stats->coverage = (gdouble) covered / size;
+    }
+
+  return covered >= size * ELANPRESS_TOUCH_MIN_COVERAGE;
 }
 
 static gdouble

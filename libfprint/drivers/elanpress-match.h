@@ -34,12 +34,26 @@
 #define ELANPRESS_NCC_MAX_DY 20
 #define ELANPRESS_NCC_MIN_OVERLAP_PX 1500
 
-/* mean positive per-pixel delta against the background frame above which a
- * frame counts as "touched". The status byte cmd_pre_scan returns answers
- * once per power-up and then wedges at "finger present" for good, so presence
- * has to be read out of the image instead. Live capture measured ~450 with no
- * finger on the sensor and ~4800 with one pressed. */
-#define ELANPRESS_TOUCH_MIN_MEAN_DELTA 1500
+/* Presence is read out of the image, because the status byte cmd_pre_scan
+ * returns answers once per power-up and then wedges at "finger present".
+ *
+ * A pixel counts as covered when it sits this far above the background, and
+ * the frame counts as touched once that many of them are. Counting covered
+ * pixels rather than averaging the delta over the whole sensor is what keeps
+ * a lightly resting finger from being diluted by the untouched area around
+ * it: a finger landing on a third of the pad drives those pixels hard but
+ * moves the whole-sensor mean very little, so a mean test only notices once
+ * the finger is pressed hard or slid across to cover more of the pad. */
+#define ELANPRESS_TOUCH_PIXEL_DELTA 1200
+#define ELANPRESS_TOUCH_MIN_COVERAGE 0.12
+
+/* what a frame looked like against the background, for tuning the two
+ * constants above from fp_dbg output */
+typedef struct
+{
+  gdouble mean_delta;
+  gdouble coverage;
+} ElanpressTouchStats;
 
 /* a processed touch whose contrast (pixel std-dev) falls below this carries
  * too little ridge detail to enroll or to match against: a light or partial
@@ -57,5 +71,6 @@ gdouble  elanpress_ncc_best (const guint8 *a, const guint8 *b,
                              int w, int h);
 gboolean elanpress_frame_has_touch (const unsigned short *frame,
                                     const unsigned short *background,
-                                    unsigned int size);
+                                    unsigned int size,
+                                    ElanpressTouchStats *stats);
 gdouble  elanpress_image_quality (const guint8 *img, unsigned int size);
