@@ -78,6 +78,7 @@ struct _FpiDeviceElan
   unsigned char  *last_read;
   unsigned char   calib_atts_left;
   unsigned char   calib_status;
+  unsigned char   capture_read_atts_left;
   unsigned short *background;
   unsigned char   frame_width;
   unsigned char   frame_height;
@@ -103,6 +104,7 @@ elan_dev_reset_state (FpiDeviceElan *elandev)
   elandev->cmd_timeout = ELAN_CMD_TIMEOUT;
 
   elandev->calib_status = 0;
+  elandev->capture_read_atts_left = ELAN_CAPTURE_READ_ATTEMPTS;
 
   g_free (elandev->last_read);
   elandev->last_read = NULL;
@@ -552,6 +554,18 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
           /* XXX: The timeout is emulated incorrectly, resulting in a zero byte read. */
           if (g_strcmp0 (g_getenv ("FP_DEVICE_EMULATION"), "1") == 0)
             fpi_ssm_mark_completed (ssm);
+          else if (self->capture_read_atts_left > 0)
+            {
+              /* Some Elan sensors (seen on 04f3:0c6e, FW 0x0500) can return a
+               * stale or garbled status byte on the read immediately following
+               * pre_scan_cmd, before their internal "finger present" state has
+               * settled - the same class of firmware quirk already documented
+               * and handled for calibration status reads in
+               * CALIBRATE_CHECK_STATUS. Retry a few times before giving up
+               * instead of failing the whole capture on the first bad byte. */
+              self->capture_read_atts_left--;
+              fpi_ssm_jump_to_state (ssm, CAPTURE_WAIT_FINGER);
+            }
           else
             fpi_ssm_mark_failed (ssm, fpi_device_error_new (FP_DEVICE_ERROR_PROTO));
         }
