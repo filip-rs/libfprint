@@ -41,8 +41,22 @@
 /* interval between finger presence polls */
 #define ELANPRESS_POLL_INTERVAL_MS 30
 
-/* pre_scan response when a finger is on the sensor */
-#define ELANPRESS_FINGER_PRESENT 0x55
+/* consecutive untouched frames that end a touch. Presence is inferred from
+ * the image itself (see ELANPRESS_TOUCH_MIN_MEAN_DELTA) rather than asked of
+ * cmd_pre_scan, whose status byte answers once per power-up and then wedges
+ * at "finger present" for good, stranding capture in a wait-for-lift loop
+ * that only a full power cycle could clear. Requiring a run of clear frames
+ * keeps sensor noise from ending a touch early, and keeps a finger left
+ * resting on the sensor from being counted as the next press. */
+#define ELANPRESS_FINGER_OFF_FRAMES 10
+
+/* consecutive clear polls after which the background frame is retaken while
+ * waiting for a press. The background is the only reference for telling a
+ * touch apart, so one captured while a finger happened to be resting would
+ * make every later frame look untouched and strand capture just as the
+ * wedged status byte used to. Retaking it on a long clear stretch recovers
+ * from that by itself, and otherwise just tracks the sensor's drift. */
+#define ELANPRESS_BG_REFRESH_FRAMES 50
 
 /* frames captured per touch; the finger is static so these only serve to
  * average out noise.
@@ -66,11 +80,26 @@
  * where the user cannot see them, and this gives them a moment to adjust. */
 #define ELANPRESS_SETTLE_MS 400
 
-/* touches sampled per verify/identify before reporting a non-match. A badly
- * placed touch of the right finger scores no better than the wrong finger, so
- * resampling recovers it without weakening the decision: every attempt still
- * has to clear the threshold on its own. */
-#define ELANPRESS_MATCH_ATTEMPTS 3
+/* separate presses averaged into one verify/identify decision.
+ *
+ * Resampling until something cleared the threshold made the verdict the best
+ * of everything tried: the best of several presses, each scored against the
+ * best of the enrolled images, each of those the best over a few thousand
+ * candidate alignments. A maximum taken over that many chances lifts a
+ * stranger's score about as readily as the owner's, which is the likely
+ * reason the driver has been reported as accepting any finger.
+ *
+ * Averaging independent presses cancels placement noise instead of rewarding
+ * a lucky one, so the genuine and impostor score distributions separate
+ * rather than both drifting upward. The cost is one extra press per verify:
+ * set this to 1 to go back to deciding on a single press. */
+#define ELANPRESS_MATCH_SAMPLES 2
+
+/* extra presses allowed when one yields no usable image at all: too few
+ * frames, or too little contrast to be worth scoring. These do not count
+ * towards the average, because a press that produced nothing is not evidence
+ * either way, whereas one that produced a poor score is. */
+#define ELANPRESS_MATCH_MAX_RETRIES 3
 
 /* version tag for the serialized print data */
 #define ELANPRESS_PRINT_VERSION 1

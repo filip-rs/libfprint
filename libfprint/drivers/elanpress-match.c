@@ -134,6 +134,57 @@ elanpress_process_frames (GSList *frames, int num_frames,
   return out;
 }
 
+/* standard deviation of the pixel values of a normalized touch image, as a
+ * cheap proxy for how much ridge contrast it actually holds. Flat captures
+ * correlate poorly against everything, genuine or not, so it is better to
+ * reject them at capture time than to store one or match against it. */
+gdouble
+elanpress_image_quality (const guint8 *img, unsigned int size)
+{
+  gdouble sum = 0, sum_sq = 0, mean;
+
+  if (!img || size == 0)
+    return 0.0;
+
+  for (unsigned int i = 0; i < size; i++)
+    sum += img[i];
+  mean = sum / size;
+
+  for (unsigned int i = 0; i < size; i++)
+    {
+      gdouble d = img[i] - mean;
+
+      sum_sq += d * d;
+    }
+
+  return sqrt (sum_sq / size);
+}
+
+/* sums how much brighter each pixel is than the background frame, to infer a
+ * touch without asking cmd_pre_scan (see the capture state machine) */
+gboolean
+elanpress_frame_has_touch (const unsigned short *frame,
+                           const unsigned short *background,
+                           unsigned int size)
+{
+  gint64 sum = 0;
+
+  /* without a reference frame presence cannot be told apart from an
+   * evenly lit sensor, so report no touch rather than guess */
+  if (!frame || !background || size == 0)
+    return FALSE;
+
+  for (unsigned int i = 0; i < size; i++)
+    {
+      int d = (int) frame[i] - (int) background[i];
+
+      if (d > 0)
+        sum += d;
+    }
+
+  return sum > (gint64) size * ELANPRESS_TOUCH_MIN_MEAN_DELTA;
+}
+
 static gdouble
 elanpress_ncc_at (const guint8 *a, const guint8 *b, int w, int h,
                   int dx, int dy)
