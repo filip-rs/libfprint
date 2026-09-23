@@ -77,7 +77,7 @@
 #define ELANPRESS_MAX_FRAMES 10
 
 /* number of touches stored during enrollment */
-#define ELANPRESS_ENROLL_STAGES 8
+#define ELANPRESS_ENROLL_STAGES 16
 
 /* grace period after the finger is first detected, before the frames that
  * will actually be matched are captured. The sensor images a small window of

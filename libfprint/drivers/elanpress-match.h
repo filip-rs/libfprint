@@ -26,13 +26,20 @@
 #define ELANPRESS_SKIP_OLDEST 2
 #define ELANPRESS_SKIP_NEWEST 1
 
-/* matching parameters, validated against captures of the Windows driver:
- * genuine presses of the same finger region correlate at 0.59-0.91 while
- * impostor images stay below 0.47 */
-#define ELANPRESS_NCC_THRESHOLD 0.55
+/* matching parameters, tuned offline on labelled touches from an ASUS
+ * 04f3:0c6e (16-image enrollment, 11 genuine vs 10 impostor probes of
+ * 7 other fingers): genuine scored 0.81-0.93, impostors at most 0.66.
+ * Translation-only NCC without masking/high-pass overlapped (FRR 36%). */
+#define ELANPRESS_NCC_THRESHOLD 0.74
 #define ELANPRESS_NCC_MAX_DX 60
 #define ELANPRESS_NCC_MAX_DY 20
-#define ELANPRESS_NCC_MIN_OVERLAP_PX 1500
+#define ELANPRESS_NCC_MIN_OVERLAP_PX 4000
+#define ELANPRESS_NCC_STEP 4
+#define ELANPRESS_ROT_MAX_DEG 20
+#define ELANPRESS_ROT_STEP_DEG 5
+#define ELANPRESS_HP_SIGMA 4.0f
+#define ELANPRESS_MASK_SIGMA 2.0f
+#define ELANPRESS_MASK_LEVEL 25
 
 /* Presence is read out of the image, because the status byte cmd_pre_scan
  * returns answers once per power-up and then wedges at "finger present".
