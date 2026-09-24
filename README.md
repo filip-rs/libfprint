@@ -1,10 +1,25 @@
+# LibFPrint Elanpress for 04f3:0c6e
 
+This is a personal fork of mine made after capturing some fingerprint packets
+from the windows driver to attempt to get the sensor functional on linux. It is
+in a working state and I use it daily.
+
+The project is however not finished and I will keep maintaining it until I have
+something that works well. Pull requests and issues are much appreciated.
+
+As for LLM usage when submitting pull requests; I do not have any issue with the
+code being written by LLM's but it's most preferable if you atleast test the code
+on your machine before opening any PR. You are responsible for the PR even if
+an agent makes it and I will close PR's without further review if they do not seem
+up to a reasonable standard.
+
+My only test machine for this sensor is an ASUS ROG Flow X13 GV301RC, so if you
+have any other machine with the same sensor and are able to test that would be very
+very nice.
 
 <div align="center">
 
-# LibFPrint
-
-*LibFPrint is part of the **[FPrint][Website]** project.*
+_LibFPrint is part of the **[FPrint][Website]** project._
 
 <br/>
 
@@ -46,11 +61,11 @@ We include **Bozorth3** from the **[US Export Controlled]**
 distribution, which we have determined to be fine
 being shipped in an open source project.
 
-## Get in *touch*
+## Get in _touch_
 
- - [IRC] - `#fprint` @ `irc.oftc.net`
- - [Matrix] - `#fprint:matrix.org` bridged to the IRC channel
- - [MailingList] - low traffic, not much used these days
+- [IRC] - `#fprint` @ `irc.oftc.net`
+- [Matrix] - `#fprint:matrix.org` bridged to the IRC channel
+- [MailingList] - low traffic, not much used these days
 
 <br/>
 
@@ -59,7 +74,6 @@ being shipped in an open source project.
 [![Badge License]][License]
 
 </div>
-
 
 <!----------------------------------------------------------------------------->
 
@@ -71,19 +85,15 @@ being shipped in an open source project.
 [MailingList]: https://lists.freedesktop.org/mailman/listinfo/fprint
 [IRC]: ircs://irc.oftc.net:6697/#fprint
 [Matrix]: https://matrix.to/#/#fprint:matrix.org
-
 [Contribute]: ./HACKING.md
 [License]: ./COPYING
-
 [University Of Manchester]: https://www.manchester.ac.uk/
 [US Export Controlled]: https://fprint.freedesktop.org/us-export-control.html
 [NBIS]: http://fingerprint.nist.gov/NBIS/index.html
 
-
 <!---------------------------------[ Badges ]---------------------------------->
 
 [Badge License]: https://img.shields.io/badge/License-LGPL2.1-015d93.svg?style=for-the-badge&labelColor=blue
-
 
 <!---------------------------------[ Buttons ]--------------------------------->
 
