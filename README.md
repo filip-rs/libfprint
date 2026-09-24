@@ -17,6 +17,73 @@ My only test machine for this sensor is an ASUS ROG Flow X13 GV301RC, so if you
 have any other machine with the same sensor and are able to test that would be very
 very nice.
 
+## Installing to test
+
+First check that you have the sensor:
+
+```sh
+lsusb | grep 04f3:0c6e
+```
+
+This replaces your distro's libfprint, so fprintd, GDM and the lockscreen
+all use it. Old prints won't carry over, so you have
+to enroll your fingers again after installing.
+
+### Arch Linux
+
+The driver is on the AUR as
+[libfprint-elanpress-git](https://aur.archlinux.org/packages/libfprint-elanpress-git),
+which builds the latest commit of this branch and replaces `libfprint`:
+
+```sh
+paru -S libfprint-elanpress-git   # or any other AUR helper
+```
+
+Reinstall it to pick up new commits. To go back, install `libfprint` again.
+
+### Other distributions
+
+Install libfprint's build dependencies (`sudo dnf builddep libfprint` on Fedora,
+`sudo apt build-dep libfprint` on Debian/Ubuntu with source repositories
+enabled), then build and install over the system library:
+
+```sh
+git clone -b elanpress https://github.com/filip-rs/libfprint.git
+cd libfprint
+meson setup build --prefix=/usr -Ddoc=false -Dinstalled-tests=false
+meson compile -C build
+sudo meson install -C build
+```
+
+Your package manager doesn't know about these files, so a libfprint update from
+your distribution will overwrite them. Reinstalling your distribution's
+libfprint package also restores the official upstream package.
+
+### Enrolling and testing
+
+Restart fprintd so it loads the new library, then enroll and verify:
+
+```sh
+sudo systemctl restart fprintd
+fprintd-enroll -f right-index-finger
+fprintd-verify -f right-index-finger
+```
+
+Enrolling takes several separate presses. Press the pad firmly and cover it
+properly as a light or partial touch is a common reason the enrolling fails.
+
+If you want to report a problem, the driver logs every press with its match score
+(`NCC`) and coverage. To turn those logs on, run `sudo systemctl edit fprintd`
+and add:
+
+```ini
+[Service]
+Environment=G_MESSAGES_DEBUG=all
+```
+
+Then restart fprintd and read the log with `journalctl -u fprintd`. Scores from
+both the right finger and other fingers is really helpful for tuning the threshold.
+
 <div align="center">
 
 _LibFPrint is part of the **[FPrint][Website]** project._
