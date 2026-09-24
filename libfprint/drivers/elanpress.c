@@ -189,6 +189,9 @@ elanpress_match_print (FpiDeviceElanPress *self, const guint8 *probe,
                                       self->frame_width, self->frame_height);
       fp_dbg ("  enrolled image %u/%u: NCC %.3f", i + 1, images->len, c);
       best = MAX (best, c);
+      /* one confident hit is enough; spare the remaining comparisons */
+      if (best >= ELANPRESS_NCC_THRESHOLD)
+        break;
     }
 
   return best;

@@ -203,71 +203,170 @@ elanpress_frame_has_touch (const unsigned short *frame,
   return covered >= size * ELANPRESS_TOUCH_MIN_COVERAGE;
 }
 
+/* separable gaussian blur with mirrored borders */
+static void
+elanpress_blur (const float *in, float *out, int w, int h, float sigma)
+{
+  int r = (int) ceilf (3 * sigma);
+  g_autofree float *k = g_new (float, 2 * r + 1);
+  g_autofree float *tmp = g_new (float, w * h);
+  float ksum = 0;
+
+  for (int i = -r; i <= r; i++)
+    ksum += k[i + r] = expf (-(i * i) / (2 * sigma * sigma));
+  for (int i = 0; i < 2 * r + 1; i++)
+    k[i] /= ksum;
+
+#define MIRROR(v, n) ((v) < 0 ? -(v) - 1 : (v) >= (n) ? 2 * (n) - (v) - 1 : (v))
+  for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+      {
+        float acc = 0;
+        for (int i = -r; i <= r; i++)
+          acc += k[i + r] * in[y * w + MIRROR (x + i, w)];
+        tmp[y * w + x] = acc;
+      }
+  for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+      {
+        float acc = 0;
+        for (int i = -r; i <= r; i++)
+          acc += k[i + r] * tmp[MIRROR (y + i, h) * w + x];
+        out[y * w + x] = acc;
+      }
+#undef MIRROR
+}
+
+/* high-pass the image so only ridge detail is correlated (the contact blob
+ * and pressure gradient look alike on every finger), and mask out the parts
+ * of the sensor the finger didn't touch */
+static void
+elanpress_prep (const guint8 *img, float *hp, guint8 *mask, int w, int h)
+{
+  int n = w * h;
+  g_autofree float *f = g_new (float, n);
+  g_autofree float *blur = g_new (float, n);
+
+  for (int i = 0; i < n; i++)
+    f[i] = img[i];
+
+  elanpress_blur (f, blur, w, h, ELANPRESS_MASK_SIGMA);
+  for (int i = 0; i < n; i++)
+    mask[i] = blur[i] > ELANPRESS_MASK_LEVEL;
+
+  elanpress_blur (f, blur, w, h, ELANPRESS_HP_SIGMA);
+  for (int i = 0; i < n; i++)
+    hp[i] = f[i] - blur[i];
+}
+
+/* rotate about the centre into a same-sized canvas; pixels that come from
+ * outside the source (or from masked-out source) are masked out */
+static void
+elanpress_rotate (const float *in, const guint8 *min, float *out, guint8 *mout,
+                  int w, int h, float deg)
+{
+  float c = cosf (deg * G_PI / 180), s = sinf (deg * G_PI / 180);
+  float cx = (w - 1) / 2.0f, cy = (h - 1) / 2.0f;
+
+  for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+      {
+        float sx = c * (x - cx) + s * (y - cy) + cx;
+        float sy = -s * (x - cx) + c * (y - cy) + cy;
+        int x0 = (int) floorf (sx), y0 = (int) floorf (sy);
+        float fx = sx - x0, fy = sy - y0;
+        int o = y * w + x;
+
+        if (x0 < 0 || y0 < 0 || x0 + 1 >= w || y0 + 1 >= h ||
+            !min[(int) roundf (sy) * w + (int) roundf (sx)])
+          {
+            out[o] = 0;
+            mout[o] = 0;
+            continue;
+          }
+        out[o] = (1 - fy) * ((1 - fx) * in[y0 * w + x0] + fx * in[y0 * w + x0 + 1]) +
+                 fy * ((1 - fx) * in[(y0 + 1) * w + x0] + fx * in[(y0 + 1) * w + x0 + 1]);
+        mout[o] = 1;
+      }
+}
+
+/* zero-mean NCC of b shifted by (dx, dy) against a, over the pixels both
+ * masks cover; -1 when that overlap is too small to mean anything */
 static gdouble
-elanpress_ncc_at (const guint8 *a, const guint8 *b, int w, int h,
-                  int dx, int dy)
+elanpress_ncc_at (const float *a, const guint8 *ma, const float *b,
+                  const guint8 *mb, int w, int h, int dx, int dy)
 {
   int x0 = MAX (0, dx), x1 = MIN (w, w + dx);
   int y0 = MAX (0, dy), y1 = MIN (h, h + dy);
-  long n = (long) (x1 - x0) * (y1 - y0);
-  gdouble sa = 0, sb = 0, ma, mb, num = 0, da = 0, db = 0;
+  gdouble sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, num, den;
+  long n = 0;
+
+  for (int y = y0; y < y1; y++)
+    for (int x = x0; x < x1; x++)
+      {
+        int ia = y * w + x, ib = (y - dy) * w + (x - dx);
+
+        if (!ma[ia] || !mb[ib])
+          continue;
+        sa += a[ia];
+        sb += b[ib];
+        saa += a[ia] * a[ia];
+        sbb += b[ib] * b[ib];
+        sab += a[ia] * b[ib];
+        n++;
+      }
 
   if (n < ELANPRESS_NCC_MIN_OVERLAP_PX)
     return -1.0;
 
-  for (int y = y0; y < y1; y++)
-    for (int x = x0; x < x1; x++)
-      {
-        sa += a[y * w + x];
-        sb += b[(y - dy) * w + (x - dx)];
-      }
-  ma = sa / n;
-  mb = sb / n;
-
-  for (int y = y0; y < y1; y++)
-    for (int x = x0; x < x1; x++)
-      {
-        gdouble va = a[y * w + x] - ma;
-        gdouble vb = b[(y - dy) * w + (x - dx)] - mb;
-
-        num += va * vb;
-        da += va * va;
-        db += vb * vb;
-      }
-
-  if (da <= 0 || db <= 0)
+  num = sab - sa * sb / n;
+  den = (saa - sa * sa / n) * (sbb - sb * sb / n);
+  if (den <= 0)
     return -1.0;
 
-  return num / sqrt (da * db);
+  return num / sqrt (den);
 }
 
-/* best zero-mean normalized cross-correlation over translations: coarse
- * grid first, then refinement around the best hit */
+/* best masked NCC of the probe a against enrolled image b over rotations of
+ * the probe and translations: coarse grid, then refinement around the best
+ * hit of each rotation */
 gdouble
 elanpress_ncc_best (const guint8 *a, const guint8 *b, int w, int h)
 {
-  gdouble best = -1.0, c;
-  int best_dx = 0, best_dy = 0;
+  int n = w * h;
+  g_autofree float *ha = g_new (float, n), *hb = g_new (float, n), *ra = g_new (float, n);
+  g_autofree guint8 *ma = g_new (guint8, n), *mb = g_new (guint8, n), *rm = g_new (guint8, n);
+  gdouble best = -1.0;
 
-  for (int dy = -ELANPRESS_NCC_MAX_DY; dy <= ELANPRESS_NCC_MAX_DY; dy += 2)
-    for (int dx = -ELANPRESS_NCC_MAX_DX; dx <= ELANPRESS_NCC_MAX_DX; dx += 3)
-      {
-        c = elanpress_ncc_at (a, b, w, h, dx, dy);
-        if (c > best)
+  elanpress_prep (a, ha, ma, w, h);
+  elanpress_prep (b, hb, mb, w, h);
+
+  for (int deg = -ELANPRESS_ROT_MAX_DEG; deg <= ELANPRESS_ROT_MAX_DEG;
+       deg += ELANPRESS_ROT_STEP_DEG)
+    {
+      gdouble abest = -1.0, c;
+      int bdx = 0, bdy = 0;
+
+      elanpress_rotate (ha, ma, ra, rm, w, h, deg);
+
+      for (int dy = -ELANPRESS_NCC_MAX_DY; dy <= ELANPRESS_NCC_MAX_DY; dy += ELANPRESS_NCC_STEP)
+        for (int dx = -ELANPRESS_NCC_MAX_DX; dx <= ELANPRESS_NCC_MAX_DX; dx += ELANPRESS_NCC_STEP)
           {
-            best = c;
-            best_dx = dx;
-            best_dy = dy;
+            c = elanpress_ncc_at (hb, mb, ra, rm, w, h, dx, dy);
+            if (c > abest)
+              {
+                abest = c;
+                bdx = dx;
+                bdy = dy;
+              }
           }
-      }
 
-  for (int dy = best_dy - 2; dy <= best_dy + 2; dy++)
-    for (int dx = best_dx - 3; dx <= best_dx + 3; dx++)
-      {
-        c = elanpress_ncc_at (a, b, w, h, dx, dy);
-        if (c > best)
-          best = c;
-      }
+      for (int dy = bdy - ELANPRESS_NCC_STEP / 2; dy <= bdy + ELANPRESS_NCC_STEP / 2; dy++)
+        for (int dx = bdx - ELANPRESS_NCC_STEP / 2; dx <= bdx + ELANPRESS_NCC_STEP / 2; dx++)
+          abest = MAX (abest, elanpress_ncc_at (hb, mb, ra, rm, w, h, dx, dy));
+
+      best = MAX (best, abest);
+    }
 
   return best;
 }
