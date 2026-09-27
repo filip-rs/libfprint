@@ -30,7 +30,7 @@
  * 04f3:0c6e (16-image enrollment, 11 genuine vs 10 impostor probes of
  * 7 other fingers): genuine scored 0.81-0.93, impostors at most 0.66.
  * Translation-only NCC without masking/high-pass overlapped (FRR 36%). */
-#define ELANPRESS_NCC_THRESHOLD 0.74
+#define ELANPRESS_NCC_THRESHOLD 0.68
 #define ELANPRESS_NCC_MAX_DX 60
 #define ELANPRESS_NCC_MAX_DY 20
 #define ELANPRESS_NCC_MIN_OVERLAP_PX 4000
