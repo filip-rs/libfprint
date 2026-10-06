@@ -21,25 +21,42 @@
 
 #include <glib.h>
 
+#include "elanpress-sift.h"
+
 /* frames dropped at the start (finger settling) and end (possible lift)
  * of a touch when enough frames are available */
 #define ELANPRESS_SKIP_OLDEST 2
 #define ELANPRESS_SKIP_NEWEST 1
 
-/* matching parameters, tuned offline on labelled touches from an ASUS
- * 04f3:0c6e (16-image enrollment, 11 genuine vs 10 impostor probes of
- * 7 other fingers): genuine scored 0.81-0.93, impostors at most 0.66.
- * Translation-only NCC without masking/high-pass overlapped (FRR 36%). */
-#define ELANPRESS_NCC_THRESHOLD 0.68
-#define ELANPRESS_NCC_MAX_DX 60
-#define ELANPRESS_NCC_MAX_DY 20
-#define ELANPRESS_NCC_MIN_OVERLAP_PX 4000
-#define ELANPRESS_NCC_STEP 4
-#define ELANPRESS_ROT_MAX_DEG 20
-#define ELANPRESS_ROT_STEP_DEG 5
-#define ELANPRESS_HP_SIGMA 4.0f
-#define ELANPRESS_MASK_SIGMA 2.0f
-#define ELANPRESS_MASK_LEVEL 25
+/* A press is matched against an enrolled image by pairing up keypoints whose
+ * descriptors are each other's clear nearest neighbour, then counting how
+ * many of those pairs agree on a single rigid placement of one image on the
+ * other. Unrelated fingers still pair up a handful of keypoints by chance,
+ * but their placements disagree, so they reach only a few such pairs.
+ *
+ * Measured on labelled presses from the reference sensor (40 genuine, 30
+ * from five other fingers, against 8 to 12 enrolled images): the other
+ * fingers reached at most 4 pairs, while 97-99% of genuine presses reached 12
+ * or more and half of them over 60. Correlating whole images instead (the
+ * previous matcher) left the two overlapping on the same data: at 0.68 it
+ * rejected about 1 genuine press in 10 and still accepted the odd impostor. */
+#define ELANPRESS_MATCH_MIN_PAIRS 12
+
+/* the nearest descriptor must be closer than this fraction of the distance
+ * to the second nearest to count as a pair (Lowe's ratio test) */
+#define ELANPRESS_MATCH_RATIO 0.8
+
+/* how far a keypoint may land from its partner under the placement, in
+ * pixels: the first value gathers support for a placement proposed by a
+ * single pair, the second decides the final count after refitting it */
+#define ELANPRESS_MATCH_LOOSE_PX 6.0
+#define ELANPRESS_MATCH_TOL_PX 3.0
+
+/* proposed placements refined by least squares, best supported first */
+#define ELANPRESS_MATCH_REFINED 8
+
+/* keypoints kept per image, strongest first */
+#define ELANPRESS_MAX_KEYPOINTS 300
 
 /* Presence is read out of the image, because the status byte cmd_pre_scan
  * returns answers once per power-up and then wedges at "finger present".
@@ -74,8 +91,9 @@ void     elanpress_rotate_frame (const guint8 *raw, unsigned short *out,
 guint8 * elanpress_process_frames (GSList *frames, int num_frames,
                                    const unsigned short *background,
                                    unsigned int size);
-gdouble  elanpress_ncc_best (const guint8 *a, const guint8 *b,
-                             int w, int h);
+ElanpressFeatures * elanpress_image_features (const guint8 *img, int w, int h);
+guint    elanpress_match_features (const ElanpressFeatures *probe,
+                                   const ElanpressFeatures *enrolled);
 gboolean elanpress_frame_has_touch (const unsigned short *frame,
                                     const unsigned short *background,
                                     unsigned int size,
