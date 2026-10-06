@@ -69,11 +69,17 @@ fprintd-enroll -f right-index-finger
 fprintd-verify -f right-index-finger
 ```
 
-Enrolling takes several separate presses. Press the pad firmly and cover it
+Enrolling takes 12 separate presses. Press the pad firmly and cover it
 properly as a light or partial touch is a common reason the enrolling fails.
+Each press only images part of your finger, so shift it a little between
+presses to cover more of it.
+
+If you enrolled with an older version of this driver, your prints still work,
+but enrolling again gives sharper images and noticeably more reliable matching.
 
 If you want to report a problem, the driver logs every press with its match score
-(`NCC`) and coverage. To turn those logs on, run `sudo systemctl edit fprintd`
+(the number of keypoint `pairs` it shares with the best enrolled image; 12 or
+more is a match) and coverage. To turn those logs on, run `sudo systemctl edit fprintd`
 and add:
 
 ```ini

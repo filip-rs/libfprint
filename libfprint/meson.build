@@ -132,7 +132,7 @@ driver_sources = {
     'elan' :
         [ 'drivers/elan.c' ],
     'elanpress' :
-        [ 'drivers/elanpress.c', 'drivers/elanpress-match.c' ],
+        [ 'drivers/elanpress.c', 'drivers/elanpress-match.c', 'drivers/elanpress-sift.c' ],
     'elanmoc' :
         [ 'drivers/elanmoc/elanmoc.c' ],
     'elanspi' :

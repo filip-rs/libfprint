@@ -5,8 +5,8 @@
  * These sensors stream raw frames like the swipe sensors handled by the
  * elan driver, but the finger rests on the sensor instead of being swiped
  * across it. The imaged area is far too small for reliable minutiae
- * matching, so enrollment stores the images themselves and matching is
- * done by normalized cross-correlation, like the Windows driver does.
+ * matching, so enrollment stores the images themselves and matching pairs
+ * up local keypoint features between them, like the Windows driver does.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -64,27 +64,26 @@
  * from that by itself, and otherwise just tracks the sensor's drift. */
 #define ELANPRESS_BG_REFRESH_FRAMES 50
 
-/* frames captured per touch; the finger is static so these only serve to
- * average out noise.
- *
- * Enrollment keeps the stricter minimum so the stored templates stay clean.
- * Verification accepts a single frame: a touch that yields fewer frames than
- * the minimum is discarded and silently retried, which to the user looks like
- * the sensor ignoring the finger rather than rejecting it. A quick tap that
- * only produces one noisy frame still correlates far above the threshold. */
-#define ELANPRESS_MIN_FRAMES_ENROLL 3
-#define ELANPRESS_MIN_FRAMES_VERIFY 1
-#define ELANPRESS_MAX_FRAMES 10
+/* a touch is imaged once, ELANPRESS_SETTLE_MS after the finger is first
+ * detected. The sensor's frames are nearly noise-free (consecutive frames of
+ * a resting finger correlate at 0.999), so averaging several buys nothing,
+ * but it does smear the ridges whenever the finger shifts while resting: on
+ * recorded presses that happened in about one press in ten, between 170 ms
+ * and 900 ms after landing, and averaged frames from such presses failed to
+ * match where a single frame of the same press did. */
+#define ELANPRESS_MAX_FRAMES 1
 
-/* number of touches stored during enrollment */
-#define ELANPRESS_ENROLL_STAGES 8
+/* number of touches stored during enrollment. The sensor sees a different
+ * part of the finger on each press, and a press only matches an enrolled one
+ * it overlaps, so more touches cover more of the finger: measured on
+ * recorded presses, 1 genuine press in 40 failed to match against 8 stored
+ * touches, 1 in 80 against 12 and 1 in 170 against 16. */
+#define ELANPRESS_ENROLL_STAGES 12
 
-/* grace period after the finger is first detected, before the frames that
- * will actually be matched are captured. The sensor images a small window of
- * the finger, so the correlation score is dominated by how well the touch is
- * centred rather than by whose finger it is; these sensors are often mounted
- * where the user cannot see them, and this gives them a moment to adjust. */
-#define ELANPRESS_SETTLE_MS 400
+/* time between detecting the finger and imaging it. The first frames catch it
+ * still landing, with only part of it in contact; from about 100 ms on the
+ * image is as good as any later one. */
+#define ELANPRESS_SETTLE_MS 200
 
 /* separate presses averaged into one verify/identify decision.
  *
@@ -95,14 +94,14 @@
  * stranger's score about as readily as the owner's, which is the likely
  * reason the driver has been reported as accepting any finger.
  *
- * Dropping that loop is what fixed it, not the averaging. Measured per press
- * on the reference sensor, genuine touches ran 0.58-0.95 against 0.18-0.39
- * for the wrong finger, so a single press already sits either side of the
- * threshold. Averaging further presses only buys margin against an unusually
- * poor genuine one, and on a lockscreen that margin is better spent on
- * convenience: a false reject there costs one more press, whereas a second
- * mandatory press costs one every single time. Raise this if the score
- * distributions on some other sensor turn out to sit closer together. */
+ * Dropping that loop is what fixed it, not the averaging. A single press
+ * already sits clearly either side of the threshold (see
+ * ELANPRESS_MATCH_MIN_PAIRS), so averaging further presses only buys margin
+ * against an unusually poor genuine one, and on a lockscreen that margin is
+ * better spent on convenience: a false reject there costs one more press,
+ * whereas a second mandatory press costs one every single time. Raise this
+ * if the score distributions on some other sensor turn out to sit closer
+ * together. */
 #define ELANPRESS_MATCH_SAMPLES 1
 
 /* extra presses allowed when one yields no usable image at all: too few
