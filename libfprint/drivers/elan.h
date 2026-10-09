@@ -223,12 +223,10 @@ static const FpIdEntry elan_id_table[] = {
   {.vid = ELAN_VEND_ID,  .pid = 0x0c42, .driver_data = ELAN_0C42},
   {.vid = ELAN_VEND_ID,  .pid = 0x0c4b, .driver_data = ELAN_ALL_DEV},
   {.vid = ELAN_VEND_ID,  .pid = 0x0c4d, .driver_data = ELAN_ALL_DEV},
-  /* 0x0c4f is a press sensor; handled by elanpress */
   {.vid = ELAN_VEND_ID,  .pid = 0x0c63, .driver_data = ELAN_ALL_DEV},
-  /* 0x0c6e is a press sensor handled by the elanpress driver */
   {.vid = ELAN_VEND_ID,  .pid = 0x0c58, .driver_data = ELAN_ALL_DEV},
   {.vid = 0,  .pid = 0,  .driver_data = 0},
-};
+}; /* Sensors moved to the elanpress driver: 0x0c6e, 0x0c4f */
 
 static void elan_cmd_done (FpiSsm *ssm);
 static void elan_cmd_read (FpiSsm   *ssm,

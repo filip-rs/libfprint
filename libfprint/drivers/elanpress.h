@@ -117,8 +117,7 @@ G_DECLARE_FINAL_TYPE (FpiDeviceElanPress, fpi_device_elanpress, FPI,
                       DEVICE_ELANPRESS, FpDevice);
 
 static const FpIdEntry elanpress_id_table[] = {
-  {.vid = ELANPRESS_VEND_ID, .pid = 0x0c6e, },
-  /* 04f3:0c4f Acer Aspire A515-45: press sensor; stock elan driver mislabels it swipe */
-  {.vid = ELANPRESS_VEND_ID, .pid = 0x0c4f, },
+  {.vid = ELANPRESS_VEND_ID, .pid = 0x0c6e, }, /* 04f3:0c6e Rog Flow x13 etc. */
+  {.vid = ELANPRESS_VEND_ID, .pid = 0x0c4f, }, /* 04f3:0c4f Acer Aspire A515-45 */
   {.vid = 0, .pid = 0, },
 };
