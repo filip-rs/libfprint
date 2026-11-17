@@ -166,6 +166,7 @@ gboolean
 elanpress_frame_has_touch (const unsigned short *frame,
                            const unsigned short *background,
                            unsigned int size,
+                           unsigned int pixel_delta,
                            ElanpressTouchStats *stats)
 {
   gint64 sum = 0;
@@ -190,7 +191,7 @@ elanpress_frame_has_touch (const unsigned short *frame,
         continue;
 
       sum += d;
-      if (d >= ELANPRESS_TOUCH_PIXEL_DELTA)
+      if (d >= pixel_delta)
         covered++;
     }
 

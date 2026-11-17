@@ -74,6 +74,10 @@ struct _FpiDeviceElanPress
   /* processed images collected during enrollment */
   GPtrArray      *enroll_images;
   int             enroll_stage;
+
+  /* how far above the background a pixel must sit to count as covered;
+   * from the id table's driver_data, set when the device is opened */
+  unsigned int    touch_pixel_delta;
 };
 
 G_DEFINE_TYPE (FpiDeviceElanPress, fpi_device_elanpress, FP_TYPE_DEVICE);
@@ -358,6 +362,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       has_touch = elanpress_frame_has_touch (self->last_frame,
                                              self->background,
                                              elanpress_frame_size (self),
+                                             self->touch_pixel_delta,
                                              &stats);
 
       fp_dbg ("poll: %s (coverage %.1f%%, mean delta %.0f)",
@@ -884,6 +889,11 @@ elanpress_open (FpDevice *dev)
    * the user meant for it, so it is imaged rather than waited out */
   self->wait_for_finger_off = FALSE;
 
+  self->touch_pixel_delta =
+    (fpi_device_get_driver_data (dev) & ELANPRESS_0C3D)
+      ? ELANPRESS_TOUCH_PIXEL_DELTA_WEAK
+      : ELANPRESS_TOUCH_PIXEL_DELTA;
+
   if (!g_usb_device_claim_interface (fpi_device_get_usb_device (dev),
                                      0, 0, &error))
     {
@@ -921,6 +931,7 @@ elanpress_cancel (FpDevice *dev)
 static void
 fpi_device_elanpress_init (FpiDeviceElanPress *self)
 {
+  self->touch_pixel_delta = ELANPRESS_TOUCH_PIXEL_DELTA;
 }
 
 static void

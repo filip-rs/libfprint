@@ -67,8 +67,12 @@
  * a lightly resting finger from being diluted by the untouched area around
  * it: a finger landing on a third of the pad drives those pixels hard but
  * moves the whole-sensor mean very little, so a mean test only notices once
- * the finger is pressed hard or slid across to cover more of the pad. */
+ * the finger is pressed hard or slid across to cover more of the pad. The
+ * 04f3:0c3d pad lights a pressed finger far more weakly than the pads this
+ * was tuned on (a settled press sits around 300-900 above background rather
+ * than 1200+), so it gets its own threshold from the id table. */
 #define ELANPRESS_TOUCH_PIXEL_DELTA 1200
+#define ELANPRESS_TOUCH_PIXEL_DELTA_WEAK 600
 #define ELANPRESS_TOUCH_MIN_COVERAGE 0.12
 
 /* what a frame looked like against the background, for tuning the two
@@ -97,5 +101,6 @@ guint    elanpress_match_features (const ElanpressFeatures *probe,
 gboolean elanpress_frame_has_touch (const unsigned short *frame,
                                     const unsigned short *background,
                                     unsigned int size,
+                                    unsigned int pixel_delta,
                                     ElanpressTouchStats *stats);
 gdouble  elanpress_image_quality (const guint8 *img, unsigned int size);
