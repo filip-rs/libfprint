@@ -113,10 +113,16 @@
 /* version tag for the serialized print data */
 #define ELANPRESS_PRINT_VERSION 1
 
+/* id table driver_data: the 04f3:0c3d pad lights a pressed finger more weakly
+ * than the pads the pixel-delta threshold was tuned on, so it needs a lower
+ * one (see ELANPRESS_TOUCH_PIXEL_DELTA_WEAK) */
+#define ELANPRESS_0C3D (1 << 0)
+
 G_DECLARE_FINAL_TYPE (FpiDeviceElanPress, fpi_device_elanpress, FPI,
                       DEVICE_ELANPRESS, FpDevice);
 
 static const FpIdEntry elanpress_id_table[] = {
+  {.vid = ELANPRESS_VEND_ID, .pid = 0x0c3d, .driver_data = ELANPRESS_0C3D}, /* 04f3:0c3d FeinTech FPS00201 */
   {.vid = ELANPRESS_VEND_ID, .pid = 0x0c6e, }, /* 04f3:0c6e Rog Flow x13 etc. */
   {.vid = ELANPRESS_VEND_ID, .pid = 0x0c4f, }, /* 04f3:0c4f Acer Aspire A515-45 */
   {.vid = ELANPRESS_VEND_ID, .pid = 0x0c63, }, /* 04f3:0c63 */
